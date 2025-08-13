@@ -43,11 +43,11 @@ with st.sidebar:
         help="Smaller = faster on CPU; larger = better accuracy.",
     )
 @st.cache_resource(show_spinner=True)
-def load_model():
+def load_model(name: str):
     # Loads onto GPU if available; otherwise CPU
-    return whisper.load_model("small")
+    return whisper.load_model(name)
 
-model = load_model()
+model = load_model(model_name)
 
 # -----------------------------
 # Audio buffer to capture mic frames
@@ -192,6 +192,7 @@ st.markdown("---")
 st.caption(
     "Notes: Install FFmpeg locally for best compatibility. On Streamlit Cloud, FFmpeg is installed via packages.txt."
 )
+
 
 
 
