@@ -70,7 +70,7 @@ if mode == "🎤 Record from mic":
             with open(tmp_file.name, "wb") as f:
                 f.write(ctx.audio_processor.get_audio_buffer())
 
-            with st.spinner("Transcribing..."):
+            with st.spinner("Transcribing...(first run may download model weights)"):
                 text = transcribe_audio(tmp_file.name)
             st.success("Done!")
             st.text_area("Transcription", text, height=200)
@@ -86,4 +86,5 @@ elif mode == "📂 Upload audio file":
             text = transcribe_audio(tmp_file.name)
         st.success("Done!")
         st.text_area("Transcription", text, height=200)
+
 
