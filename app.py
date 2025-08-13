@@ -82,7 +82,8 @@ elif mode == "📂 Upload audio file":
         tmp_file.write(uploaded_file.read())
         tmp_file.flush()
 
-        with st.spinner("Transcribing..."):
+        with st.spinner("Transcribing...(first run may download model weights)"):
             text = transcribe_audio(tmp_file.name)
         st.success("Done!")
         st.text_area("Transcription", text, height=200)
+
