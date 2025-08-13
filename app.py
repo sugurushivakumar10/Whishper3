@@ -4,47 +4,32 @@ import time
 import tempfile
 import queue
 from dataclasses import dataclass
-from typing import Optional, List
 
 import av
 import numpy as np
-from scipy.io import wavfile
+import soundfile as sf
 import streamlit as st
 import whisper
 from streamlit_webrtc import webrtc_streamer, WebRtcMode
 
 st.set_page_config(page_title="Whisper Transcriber (Mic + Upload)", page_icon="🎙️", layout="centered")
 st.title("🎙️ Whisper Transcriber — Browser Mic + File Upload")
-st.caption("Runs the official `whisper` package. Your original decoding flow, with in-browser recording.")
+st.caption("Runs the official `whisper` package. Your original decoding flow, wrapped in Streamlit with in-browser recording.")
 
 # -----------------------------
 # Sidebar: model pick
 # -----------------------------
 with st.sidebar:
     st.header("Settings")
-
-    model_options = [
-        "tiny.en", "tiny",
-        "base.en", "base",
-        "small.en", "small",
-        "medium.en", "medium",
-        "large-v1", "large-v2", "large-v3", "large",
-    ]
-
-    default_model = "small"  # choose your preferred default
-
-    # compute a valid index; fall back to first option if needed
-    default_index = model_options.index(default_model) if default_model in model_options else 0
-
     model_name = st.selectbox(
-        "Whisper model",
-        model_options,
-        index=default_index,
-        help="Smaller = faster on CPU; larger = better accuracy.",
+        "Model size",
+        ["tiny", "base", "small", "medium", "large", "turbo"],
+        index=5,
+        help="'turbo' is fast; larger models may be more accurate but heavier.",
     )
-@st.cache_resource(show_spinner=True)
+
+@st.cache_resource(show_spinner=False)
 def load_model(name: str):
-    # Loads onto GPU if available; otherwise CPU
     return whisper.load_model(name)
 
 model = load_model(model_name)
@@ -54,20 +39,20 @@ model = load_model(model_name)
 # -----------------------------
 @dataclass
 class AudioBuffer:
-    sample_rate: Optional[int] = None
-    channels: Optional[int] = None
-    _chunks: Optional[List[np.ndarray]] = None
+    sample_rate: int | None = None
+    channels: int | None = None
+    _chunks: list | None = None
 
     def __post_init__(self):
         self._chunks = []
 
     def add_frame(self, frame: av.AudioFrame):
-        arr = frame.to_ndarray()  # (channels, samples) or (samples,)
+        arr = frame.to_ndarray()
         if arr.ndim == 1:
-            arr = arr[np.newaxis, :]  # -> (1, samples)
+            arr = arr[np.newaxis, :]
         self.sample_rate = frame.sample_rate
         self.channels = arr.shape[0]
-        # Ensure float32 in [-1,1]
+        # Ensure float32 for WAV writing later
         if np.issubdtype(arr.dtype, np.integer):
             arr = arr.astype(np.float32) / 32768.0
         elif arr.dtype != np.float32:
@@ -80,15 +65,12 @@ class AudioBuffer:
         audio = np.concatenate(self._chunks, axis=1)  # (channels, samples)
         # Convert to mono
         if audio.shape[0] > 1:
-            audio = audio.mean(axis=0)
+            audio = audio.mean(axis=0, keepdims=False)
         else:
-            audio = audio.squeeze(0)
-        # Clip and convert to int16 PCM
-        audio = np.clip(audio, -1.0, 1.0).astype(np.float32)
-        pcm16 = (audio * 32767.0).astype(np.int16)
-
+            audio = audio.squeeze(axis=0)
         buf = io.BytesIO()
-        wavfile.write(buf, self.sample_rate or 16000, pcm16)
+        sr = self.sample_rate or 16000
+        sf.write(buf, audio, sr, format="WAV")
         buf.seek(0)
         return buf.read()
 
@@ -98,18 +80,18 @@ class AudioBuffer:
 st.subheader("1) Record via microphone or upload an audio file")
 col1, col2 = st.columns(2)
 
-recorded_wav_bytes: Optional[bytes] = None
+recorded_wav_bytes: bytes | None = None
 uploaded_file = None
 
 with col1:
     st.markdown("**A. Record in browser**")
     st.caption("Click Start → speak → Stop. Then click ‘Use last recording’.")
+
     audio_buffer = AudioBuffer()
 
     class AudioProcessor:
         def __init__(self):
             self.q = queue.Queue()
-
         def recv_audio(self, frame: av.AudioFrame) -> av.AudioFrame:
             audio_buffer.add_frame(frame)
             return frame
@@ -149,6 +131,7 @@ with col2:
 # -----------------------------
 st.subheader("2) Transcribe using your original Whisper flow")
 if st.button("🔍 Transcribe now", use_container_width=True):
+    # Choose input
     if recorded_wav_bytes is None and uploaded_file is None:
         st.warning("Record audio or upload a file first.")
         st.stop()
@@ -163,10 +146,12 @@ if st.button("🔍 Transcribe now", use_container_width=True):
         tmp_path = tmp.name
 
     with st.spinner("Transcribing… (first run may download model weights)"):
-        # --- Your original script logic ---
+        # --- Your original script, unmodified in spirit ---
+        # load audio and pad/trim it to fit 30 seconds
         audio = whisper.load_audio(tmp_path)
         audio = whisper.pad_or_trim(audio)
 
+        # make log-Mel spectrogram and move to the same device as the model
         mel = whisper.log_mel_spectrogram(audio, n_mels=model.dims.n_mels).to(model.device)
 
         # detect language
@@ -177,6 +162,7 @@ if st.button("🔍 Transcribe now", use_container_width=True):
         options = whisper.DecodingOptions()
         result = whisper.decode(model, mel, options)
 
+    # Display
     st.success("Done!")
     st.write(f"**Detected language:** {detected_lang}")
     st.text_area("Transcript", result.text, height=220)
@@ -190,5 +176,5 @@ if st.button("🔍 Transcribe now", use_container_width=True):
 
 st.markdown("---")
 st.caption(
-    "Notes: Install FFmpeg locally for best compatibility. On Streamlit Cloud, FFmpeg is installed via packages.txt."
+    "Notes: Install FFmpeg on your system for best compatibility. This app writes a temporary WAV and uses the official `whisper` package to decode."
 )
