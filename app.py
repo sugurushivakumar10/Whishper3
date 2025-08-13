@@ -47,7 +47,7 @@ def load_model(name: str):
     # Loads onto GPU if available; otherwise CPU
     return whisper.load_model("small")
 
-model = load_model()
+model = load_model("small")
 
 # -----------------------------
 # Audio buffer to capture mic frames
@@ -192,4 +192,5 @@ st.markdown("---")
 st.caption(
     "Notes: Install FFmpeg locally for best compatibility. On Streamlit Cloud, FFmpeg is installed via packages.txt."
 )
+
 
